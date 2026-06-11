@@ -1,14 +1,15 @@
 'use client'
 
-import { Show, SignInButton, SignUpButton, UserButton } from '@clerk/nextjs'
+import { useAuth, SignInButton, SignUpButton, UserButton } from '@clerk/nextjs'
 import { Search, History } from 'lucide-react'
 import Link from 'next/link'
 
 export default function Navbar() {
+  const { isSignedIn, isLoaded } = useAuth()
+
   return (
     <nav className="w-full flex items-center justify-between px-6 py-3 border-b border-zinc-800 bg-zinc-950 sticky top-0 z-50">
 
-      {/* Logo */}
       <Link href="/" className="flex items-center gap-2 shrink-0">
         <div className="bg-white text-black rounded-lg px-2 py-0.5 text-sm font-bold">
           Q
@@ -18,7 +19,6 @@ export default function Navbar() {
         </span>
       </Link>
 
-      {/* Middle search bar */}
       <div className="flex flex-1 max-w-md mx-6">
         <Link
           href="/"
@@ -29,13 +29,16 @@ export default function Navbar() {
         </Link>
       </div>
 
-      {/* Right side auth */}
       <div className="flex items-center gap-3 shrink-0">
-
-        <Show when="signedOut">
-          <>
+        {!isLoaded ? (
+          <div className="flex gap-2">
+            <div className="w-16 h-8 bg-zinc-800 rounded-lg animate-pulse" />
+            <div className="w-16 h-8 bg-zinc-800 rounded-lg animate-pulse" />
+          </div>
+        ) : !isSignedIn ? (
+          <div className="flex items-center gap-2">
             <SignInButton mode="modal">
-              <button className="text-sm text-zinc-300 hover:text-white transition px-4 py-1.5 rounded-lg border border-zinc-700 hover:bg-zinc-800">
+              <button className="text-sm text-zinc-300 hover:text-white px-4 py-1.5 rounded-lg border border-zinc-700 hover:bg-zinc-800 transition">
                 Sign in
               </button>
             </SignInButton>
@@ -44,14 +47,12 @@ export default function Navbar() {
                 Sign up
               </button>
             </SignUpButton>
-          </>
-        </Show>
-
-        <Show when="signedIn">
-          <>
+          </div>
+        ) : (
+          <div className="flex items-center gap-3">
             <Link
               href="/history"
-              className="flex items-center gap-1.5 text-sm text-zinc-400 hover:text-white transition px-3 py-1.5 rounded-lg hover:bg-zinc-800"
+              className="flex items-center gap-1.5 text-sm text-zinc-400 hover:text-white px-3 py-1.5 rounded-lg hover:bg-zinc-800 transition"
             >
               <History size={15} />
               <span>History</span>
@@ -60,15 +61,13 @@ export default function Navbar() {
               appearance={{
                 elements: {
                   avatarBox: 'w-8 h-8',
-                  userButtonPopoverCard: 'bg-zinc-900 border border-zinc-700',
-                  userButtonPopoverText: 'text-white',
                 },
               }}
             />
-          </>
-        </Show>
-
+          </div>
+        )}
       </div>
+
     </nav>
   )
 }
