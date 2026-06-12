@@ -1,25 +1,22 @@
-import Anthropic from '@anthropic-ai/sdk'
+import Groq from "groq-sdk";
 
-const client = new Anthropic()
+const groq = new Groq({
+  apiKey: process.env.GROQ_API_KEY,
+});
 
 export async function POST(req: Request) {
-  const { query, sources } = await req.json()
+  const { query, sources } = await req.json();
 
   const sourceText = sources
     .map((s: any, i: number) => `[${i + 1}] ${s.title}\n${s.snippet}`)
-    .join('\n\n')
+    .join("\n\n");
 
-  const stream = await client.messages.stream({
-    model: 'claude-haiku-4-5',
-    max_tokens: 1024,
+  const stream = await groq.chat.completions.create({
+    model: "llama-3.1-8b-instant",
     messages: [
       {
-        role: 'user',
-        content: `You are a helpful AI search assistant like Perplexity AI.
-
-Answer the following question using the sources provided.
-Cite sources using [1], [2] etc inline in your answer.
-Keep the answer clear, concise and well structured.
+        role: "user",
+        content: `You are a helpful AI search assistant. Answer the following question using ONLY the sources provided. Cite sources using [1], [2] etc inline in your answer. Keep it concise and well-structured.
 
 Question: ${query}
 
@@ -27,25 +24,24 @@ Sources:
 ${sourceText}`,
       },
     ],
-  })
+    stream: true,
+    temperature: 0.7,
+    max_tokens: 1024,
+  });
 
-  const encoder = new TextEncoder()
-
+  const encoder = new TextEncoder();
   const readable = new ReadableStream({
     async start(controller) {
       for await (const chunk of stream) {
-        if (
-          chunk.type === 'content_block_delta' &&
-          chunk.delta.type === 'text_delta'
-        ) {
-          controller.enqueue(encoder.encode(chunk.delta.text))
+        if (chunk.choices[0]?.delta?.content) {
+          controller.enqueue(encoder.encode(chunk.choices[0].delta.content));
         }
       }
-      controller.close()
+      controller.close();
     },
-  })
+  });
 
   return new Response(readable, {
-    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-  })
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
+  });
 }

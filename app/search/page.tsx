@@ -1,7 +1,7 @@
 'use client'
 
 import { useSearchParams } from 'next/navigation'
-import { useEffect, useState, Suspense } from 'react'
+import { useEffect, useState, Suspense, useRef } from 'react'
 import { Search, ExternalLink, ArrowRight } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
@@ -19,12 +19,31 @@ function SearchResults() {
   const [sources, setSources] = useState<Source[]>([])
   const [loading, setLoading] = useState(true)
   const [followUp, setFollowUp] = useState('')
+  const geometryRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (geometryRef.current) {
+        const shapes = geometryRef.current.querySelectorAll('[data-shape]')
+        shapes.forEach((shape, index) => {
+          const speed = 0.03 + index * 0.01
+          const moveX = (e.clientX - window.innerWidth / 2) * speed
+          const moveY = (e.clientY - window.innerHeight / 2) * speed
+          ;(shape as HTMLElement).style.transform = `translate(${moveX}px, ${moveY}px)`
+        })
+      }
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    return () => window.removeEventListener('mousemove', handleMouseMove)
+  }, [])
 
   useEffect(() => {
     if (!query) return
     setLoading(true)
     setAnswer('')
     setSources([])
+
     const fetchAnswer = async () => {
       try {
         const res = await fetch('/api/search', {
@@ -32,17 +51,22 @@ function SearchResults() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ query }),
         })
+
         const data = await res.json()
         setSources(data.sources || [])
+
         const stream = await fetch('/api/answer', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ query, sources: data.sources }),
         })
+
         const reader = stream.body?.getReader()
         const decoder = new TextDecoder()
         setLoading(false)
+
         if (!reader) return
+
         while (true) {
           const { done, value } = await reader.read()
           if (done) break
@@ -53,71 +77,109 @@ function SearchResults() {
         setAnswer('Something went wrong. Please try again.')
       }
     }
+
     fetchAnswer()
   }, [query])
 
   const handleFollowUp = () => {
     if (!followUp.trim()) return
-    router.push('/search?q=' + encodeURIComponent(followUp.trim()))
+    router.push(`/search?q=${encodeURIComponent(followUp.trim())}`)
     setFollowUp('')
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8">
-      <h1 className="text-2xl font-semibold text-white mb-6">{query}</h1>
-      <div className="mb-6">
-        <h2 className="text-sm font-medium text-zinc-400 uppercase tracking-wide mb-3">Sources</h2>
-        {loading ? (
-          <div className="flex gap-3">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="h-20 w-48 bg-zinc-800 rounded-xl animate-pulse" />
-            ))}
-          </div>
-        ) : (
-          <div className="flex gap-3 flex-wrap">
-            {sources.map((source, i) => {
-              let hostname = ''
-              try { hostname = new URL(source.url).hostname } catch { hostname = source.url }
-              return (
-                <a key={i} href={source.url} target="_blank" rel="noopener noreferrer"
-                  className="flex flex-col justify-between bg-zinc-900 border border-zinc-800 rounded-xl p-3 w-48 hover:border-zinc-600 transition">
-                  <p className="text-xs text-white font-medium line-clamp-2 mb-2">{source.title}</p>
-                  <div className="flex items-center gap-1 text-zinc-500 text-xs">
-                    <ExternalLink size={10} />
-                    <span className="truncate">{hostname}</span>
-                  </div>
-                </a>
-              )
-            })}
-          </div>
-        )}
+    <div className="relative w-full min-h-screen">
+      <div className="fixed inset-0 -z-20">
+        <div className="absolute inset-0 bg-gradient-to-br from-slate-950 via-blue-950 to-slate-900 animate-gradient" />
       </div>
-      <div className="mb-8">
-        <h2 className="text-sm font-medium text-zinc-400 uppercase tracking-wide mb-3">Answer</h2>
-        {loading ? (
-          <div className="space-y-2">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="h-4 bg-zinc-800 rounded animate-pulse" style={{ width: (90 - i * 8) + '%' }} />
-            ))}
-          </div>
-        ) : (
-          <div className="text-zinc-200 leading-relaxed whitespace-pre-wrap text-base">
-            {answer}
-            {answer && <span className="animate-pulse">▍</span>}
-          </div>
-        )}
+
+      <div className="fixed inset-0 -z-10 opacity-[0.03]" style={{
+        backgroundImage: 'linear-gradient(rgba(255,255,255,.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.1) 1px, transparent 1px)',
+        backgroundSize: '50px 50px',
+      }} />
+
+      <div ref={geometryRef} className="fixed inset-0 -z-10 overflow-hidden">
+        <div
+          data-shape="cube"
+          className="absolute w-96 h-96 top-1/4 left-1/4 transition-transform duration-700 will-change-transform"
+          style={{
+            background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, rgba(59, 130, 246, 0.03) 100%)',
+            borderRadius: '20px',
+            border: '1px solid rgba(59, 130, 246, 0.15)',
+            boxShadow: '0 0 40px rgba(59, 130, 246, 0.1)',
+          }}
+        />
+        <div
+          data-shape="circle"
+          className="absolute w-80 h-80 bottom-1/4 right-1/4 transition-transform duration-700 will-change-transform"
+          style={{
+            borderRadius: '50%',
+            border: '1px solid rgba(124, 58, 202, 0.2)',
+            boxShadow: '0 0 60px rgba(124, 58, 202, 0.15)',
+          }}
+        />
       </div>
-      <div className="flex items-center gap-3 bg-zinc-900 border border-zinc-700 rounded-full px-5 py-3 focus-within:border-zinc-500 transition">
-        <Search size={16} className="text-zinc-400 shrink-0" />
-        <input type="text" value={followUp}
-          onChange={(e) => setFollowUp(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleFollowUp()}
-          placeholder="Ask a follow-up question..."
-          className="flex-1 bg-transparent text-white placeholder-zinc-500 outline-none text-sm" />
-        <button onClick={handleFollowUp}
-          className="bg-white text-black rounded-full p-1.5 hover:bg-zinc-200 transition shrink-0">
-          <ArrowRight size={14} />
-        </button>
+
+      <div className="relative z-10 max-w-4xl mx-auto px-4 py-12">
+        
+        <h1 className="text-3xl font-bold text-white mb-8">{query}</h1>
+
+        <div className="mb-10">
+          <h2 className="text-sm font-medium text-blue-300/70 uppercase tracking-wide mb-4">Sources</h2>
+
+          {loading ? (
+            <div className="flex gap-3 flex-wrap">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-24 w-56 bg-blue-500/10 border border-blue-400/20 rounded-xl animate-pulse" />
+              ))}
+            </div>
+          ) : (
+            <div className="flex gap-3 flex-wrap">
+              {sources.map((source, i) => {
+                let hostname = ''
+                try { hostname = new URL(source.url).hostname } catch { hostname = source.url }
+                return (
+                  <a key={i} href={source.url} target="_blank" rel="noopener noreferrer" className="flex flex-col justify-between bg-blue-500/10 backdrop-blur-sm border border-blue-400/30 rounded-xl p-4 w-56 hover:border-blue-400/60 hover:bg-blue-500/15 transition-all duration-300 group">
+                    <p className="text-xs text-blue-100 font-medium line-clamp-2 mb-3 group-hover:text-white transition-colors">{source.title}</p>
+                    <div className="flex items-center gap-1.5 text-blue-300/50 text-xs group-hover:text-blue-300 transition-colors">
+                      <ExternalLink size={12} />
+                      <span className="truncate">{hostname}</span>
+                    </div>
+                  </a>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="mb-10">
+          <h2 className="text-sm font-medium text-blue-300/70 uppercase tracking-wide mb-4">Answer</h2>
+
+          {loading ? (
+            <div className="space-y-3">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="h-4 bg-blue-500/10 border border-blue-400/20 rounded animate-pulse" style={{ width: `${90 - i * 8}%` }} />
+              ))}
+            </div>
+          ) : (
+            <div className="text-blue-200/80 leading-relaxed whitespace-pre-wrap text-base bg-blue-500/5 backdrop-blur-sm border border-blue-400/20 rounded-xl p-6">
+              {answer}
+              {answer && <span className="animate-pulse">▍</span>}
+            </div>
+          )}
+        </div>
+
+        <div className="group">
+          <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-500/20 to-purple-500/20 rounded-full blur-lg opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
+
+          <div className="relative flex items-center gap-3 bg-blue-500/10 backdrop-blur-xl border border-blue-400/30 rounded-full px-6 py-4 focus-within:border-blue-400/60 focus-within:bg-blue-500/15 transition-all duration-300 shadow-lg hover:shadow-blue-500/20">
+            <Search size={16} className="text-blue-400/60 shrink-0" />
+            <input type="text" value={followUp} onChange={(e) => setFollowUp(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleFollowUp()} placeholder="Ask a follow-up question..." className="flex-1 bg-transparent text-white placeholder-blue-300/40 outline-none text-sm" />
+            <button onClick={handleFollowUp} className="group/btn bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-full p-1.5 hover:from-blue-400 hover:to-blue-500 transition-all duration-300 shrink-0">
+              <ArrowRight size={14} className="group-hover/btn:translate-x-0.5 transition-transform" />
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -125,7 +187,7 @@ function SearchResults() {
 
 export default function SearchPage() {
   return (
-    <Suspense fallback={<div className="flex items-center justify-center min-h-screen text-zinc-400">Loading...</div>}>
+    <Suspense fallback={<div className="flex items-center justify-center min-h-screen text-blue-300/60">Loading...</div>}>
       <SearchResults />
     </Suspense>
   )
