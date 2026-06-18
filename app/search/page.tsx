@@ -2,13 +2,48 @@
 
 import { useSearchParams } from 'next/navigation'
 import { useEffect, useState, Suspense, useRef } from 'react'
-import { Search, ExternalLink, ArrowRight } from 'lucide-react'
+import { Search, ExternalLink, ArrowRight, Copy, Check } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { saveToHistory } from '../history/page'
 
 interface Source {
   title: string
   url: string
   snippet: string
+}
+
+const markdownComponents = {
+  h1: ({ children }: any) => <h1 className="text-xl font-bold text-white mb-3 mt-4 first:mt-0">{children}</h1>,
+  h2: ({ children }: any) => <h2 className="text-lg font-bold text-blue-200 mb-2 mt-4 first:mt-0">{children}</h2>,
+  h3: ({ children }: any) => <h3 className="text-base font-semibold text-blue-200 mb-2 mt-3 first:mt-0">{children}</h3>,
+  p: ({ children }: any) => <p className="mb-3 last:mb-0 leading-relaxed">{children}</p>,
+  strong: ({ children }: any) => <strong className="font-semibold text-white">{children}</strong>,
+  em: ({ children }: any) => <em className="italic text-blue-100">{children}</em>,
+  ul: ({ children }: any) => <ul className="list-disc list-inside mb-3 space-y-1 text-blue-200/80">{children}</ul>,
+  ol: ({ children }: any) => <ol className="list-decimal list-inside mb-3 space-y-1 text-blue-200/80">{children}</ol>,
+  li: ({ children }: any) => <li className="leading-relaxed">{children}</li>,
+  a: ({ href, children }: any) => (
+    <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 underline underline-offset-2 transition-colors">
+      {children}
+    </a>
+  ),
+  blockquote: ({ children }: any) => (
+    <blockquote className="border-l-4 border-blue-400/40 pl-4 italic text-blue-200/60 my-3">{children}</blockquote>
+  ),
+  pre: ({ children }: any) => (
+    <pre className="bg-slate-900 border border-blue-400/20 rounded-xl p-4 overflow-x-auto mb-3 text-sm">{children}</pre>
+  ),
+  code: ({ children, className }: any) => {
+    const isBlock = !!className
+    return (
+      <code className={isBlock ? 'text-blue-100 font-mono' : 'bg-blue-900/30 px-1.5 py-0.5 rounded text-blue-200 font-mono text-sm'}>
+        {children}
+      </code>
+    )
+  },
+  hr: () => <hr className="border-blue-400/20 my-4" />,
 }
 
 function SearchResults() {
@@ -18,8 +53,12 @@ function SearchResults() {
   const [answer, setAnswer] = useState('')
   const [sources, setSources] = useState<Source[]>([])
   const [loading, setLoading] = useState(true)
+  const [answerDone, setAnswerDone] = useState(false)
   const [followUp, setFollowUp] = useState('')
+  const [copied, setCopied] = useState(false)
+  const [relatedQuestions, setRelatedQuestions] = useState<string[]>([])
   const geometryRef = useRef<HTMLDivElement>(null)
+  const answerRef = useRef('')
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -29,12 +68,10 @@ function SearchResults() {
           const speed = 0.03 + index * 0.01
           const moveX = (e.clientX - window.innerWidth / 2) * speed
           const moveY = (e.clientY - window.innerHeight / 2) * speed
-
           ;(shape as HTMLElement).style.transform = `translate(${moveX}px, ${moveY}px)`
         })
       }
     }
-
     window.addEventListener('mousemove', handleMouseMove)
     return () => window.removeEventListener('mousemove', handleMouseMove)
   }, [])
@@ -43,7 +80,11 @@ function SearchResults() {
     if (!query) return
     setLoading(true)
     setAnswer('')
-    setSources([])
+    setAnswerDone(false)
+    setRelatedQuestions([])
+    answerRef.current = ''
+
+    saveToHistory(query)
 
     const fetchAnswer = async () => {
       try {
@@ -71,21 +112,45 @@ function SearchResults() {
         while (true) {
           const { done, value } = await reader.read()
           if (done) break
-          setAnswer((prev) => prev + decoder.decode(value))
+          const chunk = decoder.decode(value)
+          answerRef.current += chunk
+          setAnswer((prev) => prev + chunk)
         }
-      } catch (err) {
+
+        setAnswerDone(true)
+      } catch {
         setLoading(false)
         setAnswer('Something went wrong. Please try again.')
+        setAnswerDone(true)
       }
     }
 
     fetchAnswer()
   }, [query])
 
+  useEffect(() => {
+    if (!answerDone || !answerRef.current) return
+
+    fetch('/api/related', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, answer: answerRef.current }),
+    })
+      .then((r) => r.json())
+      .then((data) => setRelatedQuestions(data.questions || []))
+      .catch(() => {})
+  }, [answerDone, query])
+
   const handleFollowUp = () => {
     if (!followUp.trim()) return
     router.push(`/search?q=${encodeURIComponent(followUp.trim())}`)
     setFollowUp('')
+  }
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(answerRef.current)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
   }
 
   return (
@@ -125,21 +190,18 @@ function SearchResults() {
 
         <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-white mb-6 sm:mb-8 line-clamp-3">{query}</h1>
 
+        {/* Sources */}
         <div className="mb-8 sm:mb-10">
           <h2 className="text-xs sm:text-sm font-medium text-blue-300/70 uppercase tracking-wide mb-3 sm:mb-4">Sources</h2>
 
           {loading ? (
             <div className="flex gap-2 sm:gap-3 flex-wrap">
               {[1, 2, 3].map((i) => (
-                <div
-                  key={i}
-                  className="h-24 w-40 sm:w-56 bg-blue-500/10 border border-blue-400/20 rounded-xl animate-pulse"
-                />
+                <div key={i} className="h-24 w-40 sm:w-56 bg-blue-500/10 border border-blue-400/20 rounded-xl animate-pulse" />
               ))}
             </div>
           ) : (
             <div className="flex gap-2 sm:gap-3 flex-wrap">
-
               {sources.map((source, i) => {
                 let hostname = ''
                 try {
@@ -169,8 +231,20 @@ function SearchResults() {
           )}
         </div>
 
+        {/* Answer */}
         <div className="mb-8 sm:mb-10">
-          <h2 className="text-xs sm:text-sm font-medium text-blue-300/70 uppercase tracking-wide mb-3 sm:mb-4">Answer</h2>
+          <div className="flex items-center justify-between mb-3 sm:mb-4">
+            <h2 className="text-xs sm:text-sm font-medium text-blue-300/70 uppercase tracking-wide">Answer</h2>
+            {answer && (
+              <button
+                onClick={handleCopy}
+                className="flex items-center gap-1.5 text-xs text-blue-300/50 hover:text-blue-200 border border-blue-400/20 hover:border-blue-400/40 px-2.5 py-1 rounded-lg transition-all duration-300"
+              >
+                {copied ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
+                {copied ? 'Copied!' : 'Copy'}
+              </button>
+            )}
+          </div>
 
           {loading ? (
             <div className="space-y-2 sm:space-y-3">
@@ -183,16 +257,37 @@ function SearchResults() {
               ))}
             </div>
           ) : (
-            <div className="text-blue-200/80 leading-relaxed whitespace-pre-wrap text-sm sm:text-base bg-blue-500/5 backdrop-blur-sm border border-blue-400/20 rounded-xl p-4 sm:p-6">
-              {answer}
-              {answer && <span className="animate-pulse">▍</span>}
+            <div className="text-blue-200/80 text-sm sm:text-base bg-blue-500/5 backdrop-blur-sm border border-blue-400/20 rounded-xl p-4 sm:p-6">
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                {answer}
+              </ReactMarkdown>
+              {!answerDone && <span className="animate-pulse inline-block ml-0.5">▍</span>}
             </div>
           )}
         </div>
 
+        {/* Related Questions */}
+        {relatedQuestions.length > 0 && (
+          <div className="mb-8 sm:mb-10">
+            <h2 className="text-xs sm:text-sm font-medium text-blue-300/70 uppercase tracking-wide mb-3 sm:mb-4">Related Questions</h2>
+            <div className="flex flex-wrap gap-2">
+              {relatedQuestions.map((q, i) => (
+                <button
+                  key={i}
+                  onClick={() => router.push(`/search?q=${encodeURIComponent(q)}`)}
+                  className="text-xs sm:text-sm text-blue-200/70 border border-blue-400/30 rounded-full px-3 sm:px-4 py-1.5 hover:border-blue-400/60 hover:text-blue-100 hover:bg-blue-500/10 transition-all duration-300 backdrop-blur-sm hover:scale-105 text-left"
+                  style={{ animation: `fade-up 0.5s ease-out ${i * 0.1}s both` }}
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Follow-up */}
         <div className="group">
           <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-500/20 to-purple-500/20 rounded-full blur-lg opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
-
           <div className="relative flex items-center gap-2 sm:gap-3 bg-blue-500/10 backdrop-blur-xl border border-blue-400/30 rounded-full px-4 sm:px-6 py-3 sm:py-4 focus-within:border-blue-400/60 focus-within:bg-blue-500/15 transition-all duration-300 shadow-lg hover:shadow-blue-500/20">
             <Search size={14} className="text-blue-400/60 shrink-0 sm:size-4" />
             <input
@@ -218,13 +313,7 @@ function SearchResults() {
 
 export default function SearchPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="flex items-center justify-center min-h-screen text-blue-300/60">
-          Loading...
-        </div>
-      }
-    >
+    <Suspense fallback={<div className="flex items-center justify-center min-h-screen text-blue-300/60">Loading...</div>}>
       <SearchResults />
     </Suspense>
   )
